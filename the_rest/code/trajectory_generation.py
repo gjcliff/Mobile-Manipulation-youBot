@@ -24,6 +24,20 @@ class FinalProject():
 
         self.gripper_state = 0
 
+        self.gamma1 = np.pi/4
+        self.gamma2 = np.pi/4
+        self.gamma3 = -np.pi/4
+        self.gamma4 = -np.pi/4
+
+        self.l = 0.47/2
+        self.w = 0.3/2
+        self.r = 0.0475
+
+        self.H0 = 1/self.r * np.array([[-self.l - self.w, 1, -1],
+                                       [self.l + self.w, 1, 1],
+                                       [self.l + self.w, 1, -1],
+                                       [-self.l - self.w, 1, 1]])
+
         self.Tsb = np.array([[np.cos(self.chassis_phi), -np.sin(self.chassis_phi), 0, self.chassis_x],
                              [np.sin(self.chassis_phi), np.cos(
                                  self.chassis_phi), 0, self.chassis_y],
@@ -199,11 +213,82 @@ class FinalProject():
                           traj4Output, traj5Output, traj6Output,
                           traj7Output, traj8Output))
 
-        np.savetxt("milestone2.csv", traj, delimiter=',')
+        # np.savetxt("milestone2.csv", traj, delimiter=',')
+
+    def NextState(self, current_configuration, speed_controls, dt, max_angular_velocity):
+        '''
+
+        '''
+        # assume current_configuration is 1. q(phi, x, y) of the base, 2. J1, J2, J3, J4, J5, 3. W1, W2, W3, W4
+
+        for elem in speed_controls:
+            if elem > max_angular_velocity:
+                elem = max_angular_velocity
+
+        old_arm_joint_angles = current_configuration[3:8]
+        old_wheel_angles = current_configuration[8:]
+
+        new_arm_joint_angles = old_arm_joint_angles + speed_controls[4:] * dt
+        new_wheel_angles = old_wheel_angles + speed_controls[:4] * dt
+
+        # print(speed_controls[:4])
+
+        delta_theta = (new_wheel_angles - old_wheel_angles)
+        Vb = np.linalg.pinv(self.H0) @ delta_theta
+        wbz = Vb[0]
+        vbx = Vb[1]
+        vby = Vb[2]
+
+        # print(f"wbz: {wbz}, vbx: {vbx}, vby: {vby}")
+
+        if wbz == 0:
+            delta_q = np.array([0, vbx, vby])
+        else:
+            delta_q = np.array(
+                [wbz, (vbx * np.sin(wbz) + vby * (np.cos(wbz) - 1))/wbz, (vby * np.sin(wbz) + vbx * (1 - np.cos(wbz)))/wbz])
+
+        q_new = current_configuration[:3] + delta_q
+
+        new_configuration = np.hstack(
+            (q_new, new_arm_joint_angles, new_wheel_angles))
+
+        print(new_configuration)
+
+        # print(f"new_configuration: {new_configuration}")
+
+        return new_configuration
+
+    def TestNextState(self, u, v, dt, N):
+        start_configuration = np.array([self.chassis_phi, self.chassis_x, self.chassis_y, 1, self.J2, self.J3,
+                                        self.J4, self.J5, 1, self.W2, self.W3, self.W4])
+
+        speed_controls = np.hstack((u, v))
+        # print(f"speed_Controls: {speed_controls}")
+
+        max_angular_velocity = 1
+
+        current_configuration = start_configuration
+
+        configuration_list = [np.append(current_configuration, 0)]
+
+        for i in range(N):
+            current_configuration = self.NextState(current_configuration, speed_controls,
+                                                   dt, max_angular_velocity)
+
+            # print(current_configuration)
+            configuration_list.append(np.append(current_configuration, 0))
+
+        np.savetxt("NextStateTest.csv", configuration_list, delimiter=',')
 
     def run(self):
+        v = np.array([0, 0, 0, 0, 0])
+        u = np.array([10, 10, 10, 10])
+        dt = 0.01
+        N = 100
+
         self.TrajectoryGeneration(
             self.TseInitial, self.TscInitial, self.TscGoal, self.TceGrasp, self.TceStandoff, 1)
+        self.TestNextState(u, v, dt, N)
 
 
 def main():
