@@ -120,7 +120,7 @@ class FinalProject():
                                  [0, 0, 0, 1]])
 
         self.max_linear_velocity = 0.5  # m/s
-        self.max_angular_velocity = 1.0  # rad/s
+        self.max_angular_velocity = 20.0  # rad/s
 
         self.start_configuration = np.array([0.707, 0.2, self.chassis_y, self.J1, self.J2, self.J3,
                                              self.J4, self.J5, self.W1, self.W2, self.W3, self.W4, 0])
@@ -340,10 +340,9 @@ class FinalProject():
         XinvXd = mr.TransInv(X) @ Xd
         AdjXinvXd = mr.Adjoint(XinvXd)
 
-        integral_error += xerr_se3 * dt
+        integral_error += xerr * dt
 
-        V = AdjXinvXd @ Vd + \
-            mr.se3ToVec(Kp @ xerr_se3) + mr.se3ToVec(Ki @ integral_error)
+        V = AdjXinvXd @ Vd + Kp @ xerr + Ki @ integral_error
 
         # print(f"Vd: {Vd}")
         # print(f"Ad@Vd: {AdjXinvXd @ Vd}")
@@ -366,37 +365,28 @@ class FinalProject():
         dt = 0.01
         N = 100
 
-        X = np.array([[0.170, 0, 0.985, 0.387],
-                      [0, 1, 0, 0],
-                      [-0.985, 0, 0.170, 0.570],
-                      [0, 0, 0, 1]])
-        Xd = np.array([[0, 0, 1, 0.5],
-                       [0, 1, 0, 0],
-                       [-1, 0, 0, 0.5],
-                       [0, 0, 0, 1]])
-        Xdnext = np.array([[0, 0, 1, 0.6],
-                           [0, 1, 0, 0],
-                           [-1, 0, 0, 0.3],
-                           [0, 0, 0, 1]])
-        Kp = np.array([[1, 0, 0, 0],
-                       [0, 1, 0, 0],
-                       [0, 0, 1, 0],
-                       [0, 0, 0, 1]])
-        Ki = np.array([[0.1, 0, 0, 0],
-                       [0, 0.1, 0, 0],
-                       [0, 0, 0.1, 0],
-                       [0, 0, 0, 0.1]])
+        Kp = np.array([[0.5, 0, 0, 0],
+                       [0, 0.5, 0, 0],
+                       [0, 0, 0.5, 0],
+                       [0, 0, 0, 0.5]])
+        Ki = np.array([[0, 0, 0, 0],
+                       [0, 0, 0, 0],
+                       [0, 0, 0, 0],
+                       [0, 0, 0, 0]])
+
+        Kp = 0.5 * np.identity(6)
+        Ki = 0 * np.identity(6)
+
         dt = 0.01
-        integral_error = np.array([[0., 0., 0., 0.],
-                                   [0., 0., 0., 0.],
-                                   [0., 0., 0., 0.],
-                                   [0., 0., 0., 0.]])
+        integral_error = np.array([0., 0., 0., 0., 0., 0.])
 
         # integral_error = 0
 
         # calculate reference trajectories
         reference_trajectories = self.TrajectoryGeneration(
             self.TseInitial_ref, self.TscInitial, self.TscGoal, self.TceGrasp, self.TceStandoff, 1)
+
+        np.savetxt("sanity.csv", reference_trajectories, delimiter=',')
 
         current_configuration = self.start_configuration
 
