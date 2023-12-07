@@ -1,8 +1,21 @@
+"""
+Author: Graham Clifford
+
+Drive a Kuka robot around to pick up and move a block.
+
+Plan a trajectory for the end-effector of the youBot mobile
+manipulator (a mobile base with four mecanum wheels and a 5R
+robot arm), perform odometry as the chassis moves, and perform
+feedback control to drive the youBot to pick up a block at a
+specified location. Then, carry the block to a desired location
+and put it down.
+
+"""
+
 import modern_robotics as mr
 import numpy as np
+import matplotlib.pyplot as plot
 np.set_printoptions(suppress=True, precision=10)
-
-# to run: python3 trajectory_generation.py
 
 
 class FinalProject():
@@ -40,7 +53,6 @@ class FinalProject():
                                        [-self.l - self.w, 1, 1]])
 
         self.F = np.linalg.pinv(self.H0)
-        # print(f"F: {self.F}")
         zeros_row = np.array([0, 0, 0, 0])
         self.F6 = np.vstack((zeros_row, zeros_row, self.F, zeros_row))
 
@@ -99,13 +111,13 @@ class FinalProject():
 
         self.Blist = np.vstack((self.B1, self.B2, self.B3, self.B4, self.B5))
 
-        self.TscInitial = np.array([[1, 0, 0, 1],
-                                    [0, 1, 0, 0],
+        self.TscInitial = np.array([[1, 0, 0, 0.75],
+                                    [0, 1, 0, 0.75],
                                     [0, 0, 1, 0.025],
                                     [0, 0, 0, 1]])
 
         self.TscGoal = np.array([[0, 1, 0, 0],
-                                 [-1, 0, 0, -1],
+                                 [-1, 0, 0, -1.5],
                                  [0, 0, 1, 0.025],
                                  [0, 0, 0, 1]])
 
@@ -165,7 +177,7 @@ class FinalProject():
         output_trajectories: An length N list of trajectories
         '''
 
-        Tf = 10 - 0.625 * 2
+        Tf = 30 - 0.625 * 2
 
         # trajectory 1
         T1Initial = TseInitial
@@ -234,6 +246,25 @@ class FinalProject():
 
     def NextState(self, current_configuration, speed_controls, dt, max_angular_velocity):
         '''
+        Take an initial robot configuration and simulate the next step in its trajectory.
+
+        Take an initial robot configuration of 12 variables. 3 variables (phi, x, y) for
+        the chassis, 5 variables (J1, J2, J3, J4, J5) for the positions of the 5 DOF robot
+        arm, and 4 variables (W1, W2, W3, W4) for the positions of the 4 robot wheels. Use
+        the initial robot configuration to simulate the next step in the robot's trajcetory.
+
+        Args:
+        ----
+        current_configuration (1x12 numpy array): The current configuration of the robot
+        speed_controls (1x9 numpy array): The current angular velocities of the wheels and\
+        robot joints.
+        dt (float): The time step from the current configuration to the next configuration.
+        max_angular_velocity (float): The max angular velocity of either the wheels or the\
+        robot joints.
+
+        Returns:
+        -------
+        new_configuration (1x12 numpy array): The new robot configuration after dt has passed.
 
         '''
         # assume current_configuration is 1. q(phi, x, y) of the base, 2. J1, J2, J3, J4, J5, 3. W1, W2, W3, W4
@@ -255,12 +286,9 @@ class FinalProject():
 
         delta_theta = wheel_speeds * dt
         Vb = np.linalg.pinv(self.H0) @ delta_theta
-        print(f"Vb; {Vb}")
         wbz = Vb[0]
         vbx = Vb[1]
         vby = Vb[2]
-
-        # print(f"wbz: {wbz}, vbx: {vbx}, vby: {vby}")
 
         if wbz == 0:
             delta_qb = np.array([0, vbx, vby])
@@ -275,37 +303,12 @@ class FinalProject():
                             [0, np.cos(phi), -1 * np.sin(phi)],
                             [0, np.sin(phi), np.cos(phi)]]) @ delta_qb
 
-        print(f"delta q: {delta_q}")
-
         q_new = current_configuration[:3] + delta_q
 
         new_configuration = np.hstack(
             (q_new, new_arm_joint_angles, new_wheel_angles))
 
-        # print(new_configuration)
-
-        # print(f"new_configuration: {new_configuration}")
-
         return new_configuration
-
-    def TestNextState(self, u, v, dt, N):
-        start_configuration = np.array([self.chassis_phi, self.chassis_x, self.chassis_y, 1, self.J2, self.J3,
-                                        self.J4, self.J5, 1, self.W2, self.W3, self.W4])
-
-        speed_controls = np.hstack((u, v))
-
-        current_configuration = start_configuration
-
-        configuration_list = [np.append(current_configuration, 0)]
-
-        for i in range(N):
-            current_configuration = self.NextState(current_configuration, speed_controls,
-                                                   dt, self.max_angular_velocity)
-
-            # print(current_configuration)
-            configuration_list.append(np.append(current_configuration, 0))
-
-        # np.savetxt("NextStateTest.csv", configuration_list, delimiter=',')
 
     def FeedbackControl(self, X, Xd, Xdnext, Kp, Ki, dt, integral_error):
         """
@@ -341,12 +344,6 @@ class FinalProject():
 
         V = AdjXinvXd @ Vd + Kp @ xerr + Ki @ integral_error
 
-        # print(f"Vd: {Vd}")
-        # print(f"Ad@Vd: {AdjXinvXd @ Vd}")
-        # print(f"xerr: {xerr}")
-        # print(f"xerr dt: {xerr * dt}")
-        # print(f"V: {V}")
-
         return V, integral_error
 
     def rowToTrans(self, row):
@@ -357,13 +354,9 @@ class FinalProject():
         return trans
 
     def run(self):
-        v = np.array([0, 0, 0, 0, 0])
-        u = np.array([10, 10, 10, 10])
-        dt = 0.01
-        N = 100
-
-        Kp = 2.0 * np.identity(6)
-        Ki = 0.1 * np.identity(6)
+        """Find the robot trajectory necessary to pick up the block and move it."""
+        Kp = 0.3 * np.identity(6)
+        Ki = 0.01 * np.identity(6)
 
         dt = 0.01
         integral_error = np.array([0., 0., 0., 0., 0., 0.])
@@ -406,13 +399,8 @@ class FinalProject():
             Jbase = AdjT0einvTb0inv @ self.F6
             Jarm = mr.JacobianBody(self.Blist.T, thetalist_arm)
 
-            print(f"Jbase: \n{Jbase}")
-            print(f"Jarm: \n{Jarm}")
-
             J = np.concatenate((Jbase, Jarm), axis=1)
-            print(f"J: \n{J}")
             speed_controls = np.linalg.pinv(J) @ V
-            # print(f"speed_controls: {speed_controls}")
 
             current_configuration = self.NextState(
                 current_configuration[:12], speed_controls, dt, self.max_angular_velocity)
@@ -422,7 +410,7 @@ class FinalProject():
 
             actual_configuration.append(current_configuration)
 
-        np.savetxt("this_is_it.csv", actual_configuration, delimiter=',')
+        np.savetxt("newTask.csv", actual_configuration, delimiter=',')
 
 
 def main():
