@@ -1,6 +1,6 @@
 import modern_robotics as mr
 import numpy as np
-np.set_printoptions(suppress=True, precision=3)
+np.set_printoptions(suppress=True, precision=10)
 
 # to run: python3 trajectory_generation.py
 
@@ -40,7 +40,7 @@ class FinalProject():
                                        [-self.l - self.w, 1, 1]])
 
         self.F = np.linalg.pinv(self.H0)
-        print(f"F: {self.F}")
+        # print(f"F: {self.F}")
         zeros_row = np.array([0, 0, 0, 0])
         self.F6 = np.vstack((zeros_row, zeros_row, self.F, zeros_row))
 
@@ -122,8 +122,8 @@ class FinalProject():
         self.max_linear_velocity = 0.5  # m/s
         self.max_angular_velocity = 1.0  # rad/s
 
-        self.start_configuration = np.array([self.chassis_phi, self.chassis_x, self.chassis_y, self.J1, self.J2, self.J3,
-                                             self.J4, self.J5, self.W1, self.W2, self.W3, self.W4])
+        self.start_configuration = np.array([0.707, 0.2, self.chassis_y, self.J1, self.J2, self.J3,
+                                             self.J4, self.J5, self.W1, self.W2, self.W3, self.W4, 0])
 
     def TrajectoryToOutput(self, trajectory, gripper_state):
         output = None
@@ -227,10 +227,10 @@ class FinalProject():
                                            traj4Output, traj5Output, traj6Output,
                                            traj7Output, traj8Output))
 
-        output_trajectories = np.vstack(
-            (traj1, traj2, traj3, traj4, traj5, traj6, traj7, traj8))
+        # output_trajectories = np.vstack(
+        #     (traj1, traj2, traj3, traj4, traj5, traj6, traj7, traj8))
 
-        return output_trajectories
+        return output_configurations
 
     def NextState(self, current_configuration, speed_controls, dt, max_angular_velocity):
         '''
@@ -238,42 +238,77 @@ class FinalProject():
         '''
         # assume current_configuration is 1. q(phi, x, y) of the base, 2. J1, J2, J3, J4, J5, 3. W1, W2, W3, W4
 
-        for elem in speed_controls:
-            if elem > max_angular_velocity:
-                elem = max_angular_velocity
+        for i in range(len(speed_controls)):
+            if speed_controls[i] > max_angular_velocity:
+                speed_controls[i] = max_angular_velocity
+            elif speed_controls[i] < -max_angular_velocity:
+                speed_controls[i] = -max_angular_velocity
+
+        # print(f"current_configuration: {current_configuration}")
+        # print(f"speed_controls: {speed_controls}")
 
         old_arm_joint_angles = current_configuration[3:8]
-        old_wheel_angles = current_configuration[8:]
+        old_wheel_angles = current_configuration[8:12]
 
         new_arm_joint_angles = old_arm_joint_angles + speed_controls[4:] * dt
         new_wheel_angles = old_wheel_angles + speed_controls[:4] * dt
 
         # print(speed_controls[:4])
 
-        delta_theta = (new_wheel_angles - old_wheel_angles)
+        # print(f"old wheel angles: {old_wheel_angles}")
+        # print(f"new wheel angles: {new_wheel_angles}")
+
+        delta_theta = new_wheel_angles - old_wheel_angles
         Vb = np.linalg.pinv(self.H0) @ delta_theta
+        print(f"Vb; {Vb}")
         wbz = Vb[0]
         vbx = Vb[1]
         vby = Vb[2]
 
         # print(f"wbz: {wbz}, vbx: {vbx}, vby: {vby}")
 
-        if wbz == 0:
-            delta_q = np.array([0, vbx, vby])
+        if wbz < 10**-3:
+            delta_qb = np.array([0, vbx, vby])
         else:
-            delta_q = np.array(
+            delta_qb = np.array(
                 [wbz, (vbx * np.sin(wbz) + vby * (np.cos(wbz) - 1))/wbz, (vby * np.sin(wbz) + vbx * (1 - np.cos(wbz)))/wbz])
+
+        delta_q = np.array([[1, 0, 0],
+                            [0, np.cos(current_configuration[0]), -1 *
+                             np.sin(current_configuration[0])],
+                            [0, np.sin(current_configuration[0]), np.cos(current_configuration[0])]]) @ delta_qb
+
+        print(f"delta q: {delta_q}")
 
         q_new = current_configuration[:3] + delta_q
 
         new_configuration = np.hstack(
             (q_new, new_arm_joint_angles, new_wheel_angles))
 
-        print(new_configuration)
+        # print(new_configuration)
 
         # print(f"new_configuration: {new_configuration}")
 
         return new_configuration
+
+    def TestNextState(self, u, v, dt, N):
+        start_configuration = np.array([self.chassis_phi, self.chassis_x, self.chassis_y, 1, self.J2, self.J3,
+                                        self.J4, self.J5, 1, self.W2, self.W3, self.W4])
+
+        speed_controls = np.hstack((u, v))
+
+        current_configuration = start_configuration
+
+        configuration_list = [np.append(current_configuration, 0)]
+
+        for i in range(N):
+            current_configuration = self.NextState(current_configuration, speed_controls,
+                                                   dt, self.max_angular_velocity)
+
+            # print(current_configuration)
+            configuration_list.append(np.append(current_configuration, 0))
+
+        # np.savetxt("NextStateTest.csv", configuration_list, delimiter=',')
 
     def FeedbackControl(self, X, Xd, Xdnext, Kp, Ki, dt, integral_error):
         """
@@ -296,48 +331,34 @@ class FinalProject():
         -------
 
         """
-        Vd_se3 = (1/dt) * mr.MatrixLog6(np.linalg.inv(Xd) @ Xdnext)
+        Vd_se3 = (1/dt) * mr.MatrixLog6(mr.TransInv(Xd) @ Xdnext)
         Vd = mr.se3ToVec(Vd_se3)
 
-        xerr_se3 = mr.MatrixLog6(np.linalg.inv(X) @ Xd)
+        xerr_se3 = mr.MatrixLog6(mr.TransInv(X) @ Xd)
         xerr = mr.se3ToVec(xerr_se3)
 
-        XinvXd = np.linalg.inv(X) @ Xd
+        XinvXd = mr.TransInv(X) @ Xd
         AdjXinvXd = mr.Adjoint(XinvXd)
+
+        integral_error += xerr_se3 * dt
 
         V = AdjXinvXd @ Vd + \
             mr.se3ToVec(Kp @ xerr_se3) + mr.se3ToVec(Ki @ integral_error)
 
-        integral_error += xerr_se3 * dt
-
-        print(f"Vd: {Vd}")
-        print(f"Ad@Vd: {AdjXinvXd @ Vd}")
-        print(f"xerr: {xerr}")
-        print(f"xerr dt: {xerr * dt}")
+        # print(f"Vd: {Vd}")
+        # print(f"Ad@Vd: {AdjXinvXd @ Vd}")
+        # print(f"xerr: {xerr}")
+        # print(f"xerr dt: {xerr * dt}")
+        # print(f"V: {V}")
 
         return V, integral_error
 
-    def TestNextState(self, u, v, dt, N):
-        start_configuration = np.array([self.chassis_phi, self.chassis_x, self.chassis_y, 1, self.J2, self.J3,
-                                        self.J4, self.J5, 1, self.W2, self.W3, self.W4])
-
-        speed_controls = np.hstack((u, v))
-        # print(f"speed_Controls: {speed_controls}")
-
-        max_angular_velocity = 1
-
-        current_configuration = start_configuration
-
-        configuration_list = [np.append(current_configuration, 0)]
-
-        for i in range(N):
-            current_configuration = self.NextState(current_configuration, speed_controls,
-                                                   dt, self.max_angular_velocity)
-
-            # print(current_configuration)
-            configuration_list.append(np.append(current_configuration, 0))
-
-        # np.savetxt("NextStateTest.csv", configuration_list, delimiter=',')
+    def rowToTrans(self, row):
+        trans = np.array([[row[0], row[1], row[2], row[9]],
+                          [row[3], row[4], row[5], row[10]],
+                          [row[6], row[7], row[8], row[11]],
+                          [0, 0, 0, 1]])
+        return trans
 
     def run(self):
         v = np.array([0, 0, 0, 0, 0])
@@ -345,28 +366,33 @@ class FinalProject():
         dt = 0.01
         N = 100
 
-        # X = np.array([[0.170, 0, 0.985, 0.387],
-        #               [0, 1, 0, 0],
-        #               [-0.985, 0, 0.170, 0.570],
-        #               [0, 0, 0, 1]])
-        # Xd = np.array([[0, 0, 1, 0.5],
-        #                [0, 1, 0, 0],
-        #                [-1, 0, 0, 0.5],
-        #                [0, 0, 0, 1]])
-        # Xdnext = np.array([[0, 0, 1, 0.6],
-        #                    [0, 1, 0, 0],
-        #                    [-1, 0, 0, 0.3],
-        #                    [0, 0, 0, 1]])
-        Kp = np.array([[0, 0, 0, 0],
-                       [0, 0, 0, 0],
-                       [0, 0, 0, 0],
-                       [0, 0, 0, 0]])
-        Ki = np.array([[0, 0, 0, 0],
-                       [0, 0, 0, 0],
-                       [0, 0, 0, 0],
-                       [0, 0, 0, 0]])
+        X = np.array([[0.170, 0, 0.985, 0.387],
+                      [0, 1, 0, 0],
+                      [-0.985, 0, 0.170, 0.570],
+                      [0, 0, 0, 1]])
+        Xd = np.array([[0, 0, 1, 0.5],
+                       [0, 1, 0, 0],
+                       [-1, 0, 0, 0.5],
+                       [0, 0, 0, 1]])
+        Xdnext = np.array([[0, 0, 1, 0.6],
+                           [0, 1, 0, 0],
+                           [-1, 0, 0, 0.3],
+                           [0, 0, 0, 1]])
+        Kp = np.array([[1, 0, 0, 0],
+                       [0, 1, 0, 0],
+                       [0, 0, 1, 0],
+                       [0, 0, 0, 1]])
+        Ki = np.array([[0.1, 0, 0, 0],
+                       [0, 0.1, 0, 0],
+                       [0, 0, 0.1, 0],
+                       [0, 0, 0, 0.1]])
         dt = 0.01
-        integral_error = 0
+        integral_error = np.array([[0., 0., 0., 0.],
+                                   [0., 0., 0., 0.],
+                                   [0., 0., 0., 0.],
+                                   [0., 0., 0., 0.]])
+
+        # integral_error = 0
 
         # calculate reference trajectories
         reference_trajectories = self.TrajectoryGeneration(
@@ -377,14 +403,27 @@ class FinalProject():
         actual_configuration = [current_configuration]
 
         for i in range(len(reference_trajectories)-1):
-            V, integral_error = self.FeedbackControl(
-                self.TseInitial, reference_trajectories[i], reference_trajectories[i+1], Kp, Ki, dt, integral_error)
+
+            # print(f"current_configuration: {current_configuration}")
 
             # find the current joint angles of the arm
-            thetalist_arm = current_configuration[4:9]
+            thetalist_arm = current_configuration[3:8]
+
+            Tsb = np.array([[np.cos(current_configuration[0]), -np.sin(current_configuration[0]), 0, current_configuration[1]],
+                            [np.sin(current_configuration[0]), np.cos(
+                                current_configuration[0]), 0, current_configuration[2]],
+                            [0, 0, 1, 0.0963],
+                            [0, 0, 0, 1]])
+
+            T0e = mr.FKinBody(self.M0e, self.Blist.T, thetalist_arm)
+
+            Tse_current = Tsb @ self.Tb0 @ T0e
 
             # find transformation matrix T0e and the adjoint
-            T0e = mr.FKinBody(self.M0e, self.Blist.T, thetalist_arm)
+
+            V, integral_error = self.FeedbackControl(
+                Tse_current, self.rowToTrans(reference_trajectories[i]), self.rowToTrans(reference_trajectories[i+1]), Kp, Ki, dt, integral_error)
+
             AdjT0einvTb0inv = mr.Adjoint(
                 np.linalg.inv(T0e) @ np.linalg.inv(self.Tb0))
 
@@ -394,9 +433,13 @@ class FinalProject():
 
             J = np.concatenate((Jarm, Jbase), axis=1)
             speed_controls = np.linalg.pinv(J) @ V
+            # print(f"speed_controls: {speed_controls}")
 
             current_configuration = self.NextState(
-                current_configuration, speed_controls, dt, self.max_angular_velocity)
+                current_configuration[:12], speed_controls, dt, self.max_angular_velocity)
+
+            current_configuration = np.append(
+                current_configuration, reference_trajectories[i][12])
 
             actual_configuration.append(current_configuration)
 
