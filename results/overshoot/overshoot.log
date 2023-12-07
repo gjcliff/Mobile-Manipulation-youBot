@@ -1,0 +1,4 @@
+graham@gubuntu:~/classes/Q1/ME449/final_project(integration)$  cd /home/graham/classes/Q1/ME449/final_project ; /usr/bin/env /usr/bin/python /home/graham/.vscode/extensions/ms-python.python-2023.20.0/pythonFiles/lib/python/debugpy/adapter/../../debugpy/launcher 46795 -- /home/graham/classes/Q1/ME449/final_project/code/trajectory_generation.py 
+Generating Reference Trajectories.
+Generating trajectories using feedforward plus feedback control
+Generating csv data...

@@ -14,7 +14,7 @@ and put it down.
 
 import modern_robotics as mr
 import numpy as np
-import matplotlib.pyplot as plot
+import matplotlib.pyplot as plt
 np.set_printoptions(suppress=True, precision=10)
 
 
@@ -111,13 +111,13 @@ class FinalProject():
 
         self.Blist = np.vstack((self.B1, self.B2, self.B3, self.B4, self.B5))
 
-        self.TscInitial = np.array([[1, 0, 0, 0.75],
-                                    [0, 1, 0, 0.75],
+        self.TscInitial = np.array([[1, 0, 0, 1.0],
+                                    [0, 1, 0, 0.0],
                                     [0, 0, 1, 0.025],
                                     [0, 0, 0, 1]])
 
         self.TscGoal = np.array([[0, 1, 0, 0],
-                                 [-1, 0, 0, -1.5],
+                                 [-1, 0, 0, -1.0],
                                  [0, 0, 1, 0.025],
                                  [0, 0, 0, 1]])
 
@@ -177,7 +177,9 @@ class FinalProject():
         output_trajectories: An length N list of trajectories
         '''
 
-        Tf = 30 - 0.625 * 2
+        print("Generating Reference Trajectories.")
+
+        Tf = 10 - 0.625 * 2
 
         # trajectory 1
         T1Initial = TseInitial
@@ -238,9 +240,6 @@ class FinalProject():
         output_configurations = np.vstack((traj1Output, traj2Output, traj3Output,
                                            traj4Output, traj5Output, traj6Output,
                                            traj7Output, traj8Output))
-
-        # output_trajectories = np.vstack(
-        #     (traj1, traj2, traj3, traj4, traj5, traj6, traj7, traj8))
 
         return output_configurations
 
@@ -344,7 +343,7 @@ class FinalProject():
 
         V = AdjXinvXd @ Vd + Kp @ xerr + Ki @ integral_error
 
-        return V, integral_error
+        return V, integral_error, xerr
 
     def rowToTrans(self, row):
         trans = np.array([[row[0], row[1], row[2], row[9]],
@@ -355,8 +354,8 @@ class FinalProject():
 
     def run(self):
         """Find the robot trajectory necessary to pick up the block and move it."""
-        Kp = 0.3 * np.identity(6)
-        Ki = 0.01 * np.identity(6)
+        Kp = 3.0 * np.identity(6)
+        Ki = 0.1 * np.identity(6)
 
         dt = 0.01
         integral_error = np.array([0., 0., 0., 0., 0., 0.])
@@ -368,6 +367,9 @@ class FinalProject():
         current_configuration = self.start_configuration
 
         actual_configuration = [current_configuration]
+        xerr_list = []
+
+        print("Generating trajectories using feedforward plus feedback control")
 
         for i in range(len(reference_trajectories)-1):
 
@@ -389,7 +391,7 @@ class FinalProject():
 
             # find transformation matrix T0e and the adjoint
 
-            V, integral_error = self.FeedbackControl(
+            V, integral_error, xerr = self.FeedbackControl(
                 Tse_current, self.rowToTrans(reference_trajectories[i]), self.rowToTrans(reference_trajectories[i+1]), Kp, Ki, dt, integral_error)
 
             AdjT0einvTb0inv = mr.Adjoint(
@@ -409,8 +411,37 @@ class FinalProject():
                 current_configuration, reference_trajectories[i][12])
 
             actual_configuration.append(current_configuration)
+            xerr_list.append(xerr)
 
-        np.savetxt("newTask.csv", actual_configuration, delimiter=',')
+        print("Generating csv data...")
+        # np.savetxt("newTask.csv", actual_configuration, delimiter=',')
+        np.savetxt("best_xerr.csv",
+                   xerr_list, delimiter=',')
+
+        xerr_array = np.asarray(xerr_list).T
+
+        plt.figure(dpi=125, facecolor='w')
+
+        x_min = 0
+        x_max = 10
+        N = 993
+        x_domain = np.linspace(x_min, x_max, N)
+
+        plt.figure(figsize=(12, 4))
+
+        plt.plot(x_domain, xerr_array[0])
+        plt.plot(x_domain, xerr_array[1])
+        plt.plot(x_domain, xerr_array[2])
+        plt.plot(x_domain, xerr_array[3])
+        plt.plot(x_domain, xerr_array[4])
+        plt.plot(x_domain, xerr_array[5])
+        plt.title(
+            "$\\omega_x$, $\\omega_x$, $\\omega_x$, and $v_x$, $v_y$, and $v_z$")
+        plt.legend([r'$\omega_x$', r'$\omega_y$',
+                   r'$\omega_z$', r'$v_x$', r'$v_y$', r'$v_z$'])
+        plt.xlabel("Time")
+
+        plt.show()
 
 
 def main():
