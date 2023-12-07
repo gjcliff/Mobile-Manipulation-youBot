@@ -244,21 +244,16 @@ class FinalProject():
             elif speed_controls[i] < -max_angular_velocity:
                 speed_controls[i] = -max_angular_velocity
 
-        # print(f"current_configuration: {current_configuration}")
-        # print(f"speed_controls: {speed_controls}")
-
         old_arm_joint_angles = current_configuration[3:8]
         old_wheel_angles = current_configuration[8:12]
 
-        new_arm_joint_angles = old_arm_joint_angles + speed_controls[4:] * dt
-        new_wheel_angles = old_wheel_angles + speed_controls[:4] * dt
+        arm_speeds = speed_controls[4:]
+        wheel_speeds = speed_controls[:4]
 
-        # print(speed_controls[:4])
+        new_arm_joint_angles = old_arm_joint_angles + arm_speeds * dt
+        new_wheel_angles = old_wheel_angles + wheel_speeds * dt
 
-        # print(f"old wheel angles: {old_wheel_angles}")
-        # print(f"new wheel angles: {new_wheel_angles}")
-
-        delta_theta = new_wheel_angles - old_wheel_angles
+        delta_theta = wheel_speeds * dt
         Vb = np.linalg.pinv(self.H0) @ delta_theta
         print(f"Vb; {Vb}")
         wbz = Vb[0]
@@ -267,16 +262,18 @@ class FinalProject():
 
         # print(f"wbz: {wbz}, vbx: {vbx}, vby: {vby}")
 
-        if wbz < 10**-3:
+        if wbz == 0:
             delta_qb = np.array([0, vbx, vby])
         else:
-            delta_qb = np.array(
-                [wbz, (vbx * np.sin(wbz) + vby * (np.cos(wbz) - 1))/wbz, (vby * np.sin(wbz) + vbx * (1 - np.cos(wbz)))/wbz])
+            delta_qb = np.array([wbz,
+                                (vbx * np.sin(wbz) + vby * (np.cos(wbz) - 1))/wbz,
+                                (vby * np.sin(wbz) + vbx * (1 - np.cos(wbz)))/wbz])
+
+        phi = current_configuration[0]
 
         delta_q = np.array([[1, 0, 0],
-                            [0, np.cos(current_configuration[0]), -1 *
-                             np.sin(current_configuration[0])],
-                            [0, np.sin(current_configuration[0]), np.cos(current_configuration[0])]]) @ delta_qb
+                            [0, np.cos(phi), -1 * np.sin(phi)],
+                            [0, np.sin(phi), np.cos(phi)]]) @ delta_qb
 
         print(f"delta q: {delta_q}")
 
@@ -365,28 +362,15 @@ class FinalProject():
         dt = 0.01
         N = 100
 
-        Kp = np.array([[0.5, 0, 0, 0],
-                       [0, 0.5, 0, 0],
-                       [0, 0, 0.5, 0],
-                       [0, 0, 0, 0.5]])
-        Ki = np.array([[0, 0, 0, 0],
-                       [0, 0, 0, 0],
-                       [0, 0, 0, 0],
-                       [0, 0, 0, 0]])
-
-        Kp = 0.5 * np.identity(6)
-        Ki = 0 * np.identity(6)
+        Kp = 2.0 * np.identity(6)
+        Ki = 0.1 * np.identity(6)
 
         dt = 0.01
         integral_error = np.array([0., 0., 0., 0., 0., 0.])
 
-        # integral_error = 0
-
         # calculate reference trajectories
         reference_trajectories = self.TrajectoryGeneration(
             self.TseInitial_ref, self.TscInitial, self.TscGoal, self.TceGrasp, self.TceStandoff, 1)
-
-        np.savetxt("sanity.csv", reference_trajectories, delimiter=',')
 
         current_configuration = self.start_configuration
 
@@ -394,14 +378,15 @@ class FinalProject():
 
         for i in range(len(reference_trajectories)-1):
 
-            # print(f"current_configuration: {current_configuration}")
-
             # find the current joint angles of the arm
             thetalist_arm = current_configuration[3:8]
 
-            Tsb = np.array([[np.cos(current_configuration[0]), -np.sin(current_configuration[0]), 0, current_configuration[1]],
-                            [np.sin(current_configuration[0]), np.cos(
-                                current_configuration[0]), 0, current_configuration[2]],
+            x = current_configuration[1]
+            y = current_configuration[2]
+            phi = current_configuration[0]
+
+            Tsb = np.array([[np.cos(phi), -np.sin(phi), 0, x],
+                            [np.sin(phi), np.cos(phi), 0, y],
                             [0, 0, 1, 0.0963],
                             [0, 0, 0, 1]])
 
@@ -421,7 +406,11 @@ class FinalProject():
             Jbase = AdjT0einvTb0inv @ self.F6
             Jarm = mr.JacobianBody(self.Blist.T, thetalist_arm)
 
-            J = np.concatenate((Jarm, Jbase), axis=1)
+            print(f"Jbase: \n{Jbase}")
+            print(f"Jarm: \n{Jarm}")
+
+            J = np.concatenate((Jbase, Jarm), axis=1)
+            print(f"J: \n{J}")
             speed_controls = np.linalg.pinv(J) @ V
             # print(f"speed_controls: {speed_controls}")
 
@@ -434,25 +423,6 @@ class FinalProject():
             actual_configuration.append(current_configuration)
 
         np.savetxt("this_is_it.csv", actual_configuration, delimiter=',')
-        # V, integral_error = self.FeedbackControl(
-        #     X, Xd, Xdnext, Kp, Ki, dt, integral_error)
-        # print(f"V: {V}")
-
-        # thetalist_arm = np.array([0, 0, 0.2, -1.6, 0])
-
-        # T0e = mr.FKinBody(self.M0e, self.Blist.T, thetalist_arm)
-
-        # AdjT0einvTb0inv = mr.Adjoint(
-        #     np.linalg.inv(T0e) @ np.linalg.inv(self.Tb0))
-        # Jbase = AdjT0einvTb0inv @ self.F6
-
-        # Jarm = mr.JacobianBody(self.Blist.T, thetalist_arm)
-        # J = np.concatenate((Jarm, Jbase), axis=1)
-        # controls = np.linalg.pinv(J) @ V
-
-        # self.TrajectoryGeneration(
-        #     self.TseInitial, self.TscInitial, self.TscGoal, self.TceGrasp, self.TceStandoff, 1)
-        # self.TestNextState(u, v, dt, N)
 
 
 def main():
