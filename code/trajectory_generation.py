@@ -415,7 +415,7 @@ class FinalProject():
 
         print("Generating csv data...")
         # np.savetxt("newTask.csv", actual_configuration, delimiter=',')
-        np.savetxt("best_xerr.csv",
+        np.savetxt("trajectory.csv",
                    xerr_list, delimiter=',')
 
         xerr_array = np.asarray(xerr_list).T
